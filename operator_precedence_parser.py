@@ -1,375 +1,192 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
-# ---------------------------------
-# Operator Precedence Table
-# < = shift
-# > = reduce
-# e = error
-# ---------------------------------
-
-precedence_table = {
-
-    '+': {'+': '>', '*': '<', 'id': '<', '$': '>'},
-
-    '*': {'+': '>', '*': '>', 'id': '<', '$': '>'},
-
-    'id': {'+': '>', '*': '>', 'id': 'e', '$': '>'},
-
-    '$': {'+': '<', '*': '<', 'id': '<', '$': 'accept'}
+# TABLES 
+PRECEDENCE_TABLE = {
+    '+':  {'+': '>', '-': '>', '*': '<', '/': '<', '(': '<', ')': '>', 'id': '<', '$': '>'},
+    '-':  {'+': '>', '-': '>', '*': '<', '/': '<', '(': '<', ')': '>', 'id': '<', '$': '>'},
+    '*':  {'+': '>', '-': '>', '*': '>', '/': '>', '(': '<', ')': '>', 'id': '<', '$': '>'},
+    '/':  {'+': '>', '-': '>', '*': '>', '/': '>', '(': '<', ')': '>', 'id': '<', '$': '>'},
+    '(':  {'+': '<', '-': '<', '*': '<', '/': '<', '(': '<', ')': '=', 'id': '<', '$': 'err'},
+    ')':  {'+': '>', '-': '>', '*': '>', '/': '>', '(': 'err', ')': '>', 'id': 'err', '$': '>'},
+    'id': {'+': '>', '-': '>', '*': '>', '/': '>', '(': 'err', ')': '>', 'id': 'err', '$': '>'},
+    '$':  {'+': '<', '-': '<', '*': '<', '/': '<', '(': '<', ')': 'err', 'id': '<', '$': 'acc'}
 }
 
+# BACKTRACKING PARSER LOGIC 
+# Grammar: S -> aAd | aBc, A -> b, B -> b
+class BacktrackingParser:
+    def __init__(self, input_str):
+        self.tokens = input_str.replace(" ", "")
+        self.pos = 0
+        self.steps = []
 
-# ---------------------------------
-# Parser Function
-# ---------------------------------
+    def parse(self):
+        self.steps.append(f"Starting Parse for: {self.tokens}")
+        result = self.S()
+        if result and self.pos == len(self.tokens):
+            return True, self.steps
+        return False, self.steps
 
-def parse_expression(expression):
+    def match(self, char):
+        if self.pos < len(self.tokens) and self.tokens[self.pos] == char:
+            self.pos += 1
+            return True
+        return False
 
-    # Split expression into tokens
-    tokens = expression.split()
+    def S(self):
+        initial_pos = self.pos
+        self.steps.append(f"Trying S -> aAd at pos {self.pos}")
+        # Try Rule 1: S -> aAd
+        if self.match('a'):
+            if self.A():
+                if self.match('d'):
+                    return True
+        
+        # Backtrack
+        self.steps.append(f"FAILED Rule 1, Backtracking to pos {initial_pos}")
+        self.pos = initial_pos
+        
+        # Try Rule 2: S -> aBc
+        self.steps.append(f"Trying S -> aBc at pos {self.pos}")
+        if self.match('a'):
+            if self.B():
+                if self.match('c'):
+                    return True
+        return False
 
-    # Add end symbol
-    tokens.append('$')
+    def A(self):
+        self.steps.append("  Trying A -> b")
+        return self.match('b')
 
-    stack = ['$']
+    def B(self):
+        self.steps.append("  Trying B -> b")
+        return self.match('b')
+    
+# GUI CLASS 
+class ParsingApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Compiler Construction: Parsing Techniques")
+        self.root.geometry("1000x800")
 
-    history = []
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(expand=True, fill='both')
 
-    i = 0
+        # Create Tabs
+        self.tab_op = ttk.Frame(self.notebook)
+        self.tab_bt = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_op, text="Operator Precedence")
+        self.notebook.add(self.tab_bt, text="Backtracking")
 
-    while len(stack) > 0:
+        self.setup_operator_ui()
+        self.setup_backtracking_ui()
 
-        top = stack[-1]
+    # Operator Precedence UI 
+    def setup_operator_ui(self):
+        # Input
+        input_frame = tk.Frame(self.tab_op)
+        input_frame.pack(pady=10)
+        tk.Label(input_frame, text="Expression (e.g. id + id * id):").pack(side=tk.LEFT)
+        self.op_entry = tk.Entry(input_frame, width=30)
+        self.op_entry.pack(side=tk.LEFT, padx=5)
+        tk.Button(input_frame, text="Parse", command=self.run_operator, bg="green", fg="white").pack(side=tk.LEFT)
 
-        current_token = tokens[i]
+        # Precedence Table Display
+        table_label = tk.Label(self.tab_op, text="Operator Precedence Table", font=('Arial', 10, 'bold'))
+        table_label.pack()
+        
+        terms = ['+', '-', '*', '/', '(', ')', 'id', '$']
+        self.op_tree_table = ttk.Treeview(self.tab_op, columns=terms, height=8)
+        for t in terms: self.op_tree_table.heading(t, text=t); self.op_tree_table.column(t, width=40, anchor='center')
+        self.op_tree_table.pack(pady=5)
+        for row_term in terms:
+            vals = [PRECEDENCE_TABLE[row_term].get(c, ' ') for c in terms]
+            self.op_tree_table.insert('', 'end', text=row_term, values=vals)
 
-        # Update current stack label
-        stack_status.config(
-            text="Current Stack: " + " ".join(stack)
-        )
+        # Process Table
+        self.op_process = ttk.Treeview(self.tab_op, columns=("Stack", "Input", "Action"), show='headings', height=10)
+        self.op_process.heading("Stack", text="Stack"); self.op_process.heading("Input", text="Input"); self.op_process.heading("Action", text="Action")
+        self.op_process.pack(expand=True, fill='both', padx=10)
 
-        relation = precedence_table.get(top, {}).get(current_token, 'e')
+        self.op_canvas = tk.Canvas(self.tab_op, height=150, bg="white")
+        self.op_canvas.pack(fill='x', padx=10, pady=5)
 
-        stack_content = " ".join(stack)
+    def run_operator(self):
+        raw_input = self.op_entry.get()
+        tokens = []
+        for t in raw_input.split():
+            tokens.append('id' if t.isdigit() else t)
+        tokens.append('$')
+        
+        self.op_process.delete(*self.op_process.get_children())
+        stack = ['$']
+        i = 0
+        
+        while True:
+            top = stack[-1]
+            current = tokens[i]
+            
+            if top not in PRECEDENCE_TABLE or current not in PRECEDENCE_TABLE[top]:
+                self.op_process.insert('', 'end', values=(" ".join(stack), " ".join(tokens[i:]), "ERROR"))
+                break
+                
+            relation = PRECEDENCE_TABLE[top][current]
+            self.op_process.insert('', 'end', values=(" ".join(stack), " ".join(tokens[i:]), f"Relation: {relation}"))
 
-        remaining_input = " ".join(tokens[i:])
+            if relation == '<' or relation == '=':
+                stack.append(current)
+                i += 1
+            elif relation == '>':
+                stack.pop() # Reduction
+            elif relation == 'acc':
+                messagebox.showinfo("Success", "Accepted by Operator Precedence!")
+                self.draw_simple_tree(tokens[:-1])
+                break
+            else:
+                messagebox.showerror("Error", "String Rejected")
+                break
 
-        # Shift operation
-        if relation == '<' or relation == '=':
+    #  Backtracking UI 
+    def setup_backtracking_ui(self):
+        tk.Label(self.tab_bt, text="Grammar: S -> aAd | aBc, A -> b, B -> b", font=("Arial", 10, "italic")).pack(pady=5)
+        
+        input_frame = tk.Frame(self.tab_bt)
+        input_frame.pack(pady=10)
+        tk.Label(input_frame, text="Input (e.g. abc or abd):").pack(side=tk.LEFT)
+        self.bt_entry = tk.Entry(input_frame, width=20)
+        self.bt_entry.pack(side=tk.LEFT, padx=5)
+        tk.Button(input_frame, text="Parse with Backtracking", command=self.run_backtracking, bg="blue", fg="white").pack(side=tk.LEFT)
 
-            action = f"Shift {current_token}"
+        self.bt_log = tk.Listbox(self.tab_bt, height=15)
+        self.bt_log.pack(expand=True, fill='both', padx=10)
 
-            history.append(
-                (stack_content,
-                 remaining_input,
-                 action)
-            )
-
-            stack.append(current_token)
-
-            i += 1
-
-        # Reduce operation
-        elif relation == '>':
-
-            action = "Reduce"
-
-            history.append(
-                (stack_content,
-                 remaining_input,
-                 action)
-            )
-
-            stack.pop()
-
-        # Accept expression
-        elif relation == 'accept':
-
-            history.append(
-                (stack_content,
-                 remaining_input,
-                 "ACCEPT")
-            )
-
-            return True, history
-
-        # Reject expression
+    def run_backtracking(self):
+        self.bt_log.delete(0, tk.END)
+        parser = BacktrackingParser(self.bt_entry.get())
+        success, steps = parser.parse()
+        for step in steps:
+            self.bt_log.insert(tk.END, step)
+        
+        if success:
+            messagebox.showinfo("Result", "Accepted via Backtracking!")
         else:
-
-            history.append(
-                (stack_content,
-                 remaining_input,
-                 "REJECT")
-            )
-
-            return False, history
-
-
-# ---------------------------------
-# Clear Table
-# ---------------------------------
-
-def clear_table():
-
-    for row in table.get_children():
-
-        table.delete(row)
-
-
-# ---------------------------------
-# Clear All
-# ---------------------------------
-
-def clear_all():
-
-    clear_table()
-
-    entry_field.delete(0, tk.END)
-
-    token_label.config(text="Tokens: ")
-
-    stack_status.config(text="Current Stack: ")
-
-    status_label.config(
-        text="STATUS: Waiting for Input",
-        fg="gray"
-    )
-
-
-# ---------------------------------
-# Run Parser
-# ---------------------------------
-
-def run_parser():
-
-    clear_table()
-
-    user_input = entry_field.get()
-
-    # Check empty input
-    if len(user_input.strip()) == 0:
-
-        status_label.config(
-            text="Please enter expression",
-            fg="orange"
-        )
-
-        return
-
-    # Show tokens
-    token_label.config(
-        text="Tokens: " + str(user_input.split())
-    )
-
-    success, parsing_history = parse_expression(user_input)
-
-    # Add parser steps to table
-    for step in parsing_history:
-
-        table.insert("", "end", values=step)
-
-    # Final result
-    if success:
-
-        status_label.config(
-            text="STATUS: Expression Accepted",
-            fg="green"
-        )
-
-    else:
-
-        status_label.config(
-            text="STATUS: Expression Rejected",
-            fg="red"
-        )
-
-
-# ---------------------------------
-# Main Window
-# ---------------------------------
-
-window = tk.Tk()
-
-window.title("Operator Precedence Parser")
-
-window.geometry("850x650")
-
-
-# ---------------------------------
-# Grammar Section
-# ---------------------------------
-
-grammar_frame = tk.LabelFrame(
-    window,
-    text="Grammar",
-    padx=10,
-    pady=10
-)
-
-grammar_frame.pack(fill="x", padx=10, pady=5)
-
-grammar_label = tk.Label(
-    grammar_frame,
-    text="""
-E → E + E
-E → E * E
-E → id
-""",
-    justify="left",
-    font=("Arial", 11)
-)
-
-grammar_label.pack(anchor="w")
-
-
-# ---------------------------------
-# Precedence Table Section
-# ---------------------------------
-
-matrix_frame = tk.LabelFrame(
-    window,
-    text="Precedence Matrix",
-    padx=10,
-    pady=10
-)
-
-matrix_frame.pack(fill="x", padx=10, pady=5)
-
-matrix_text = """
-      +     *     id     $
-+     >     <      <      >
-*     >     >      <      >
-id    >     >      e      >
-$     <     <      <    accept
-"""
-
-matrix_label = tk.Label(
-    matrix_frame,
-    text=matrix_text,
-    justify="left",
-    font=("Courier New", 10)
-)
-
-matrix_label.pack(anchor="w")
-
-
-# ---------------------------------
-# Input Section
-# ---------------------------------
-
-top_frame = tk.Frame(window)
-
-top_frame.pack(pady=10)
-
-input_label = tk.Label(
-    top_frame,
-    text="Enter Expression:"
-)
-
-input_label.pack(side=tk.LEFT, padx=5)
-
-entry_field = tk.Entry(
-    top_frame,
-    width=35
-)
-
-entry_field.pack(side=tk.LEFT, padx=5)
-
-parse_button = tk.Button(
-    top_frame,
-    text="Parse",
-    command=run_parser,
-    bg="#4CAF50",
-    fg="white"
-)
-
-parse_button.pack(side=tk.LEFT, padx=5)
-
-clear_button = tk.Button(
-    top_frame,
-    text="Clear",
-    command=clear_all,
-    bg="#f44336",
-    fg="white"
-)
-
-clear_button.pack(side=tk.LEFT, padx=5)
-
-
-# ---------------------------------
-# Token Display
-# ---------------------------------
-
-token_label = tk.Label(
-    window,
-    text="Tokens: ",
-    font=("Arial", 10, "bold")
-)
-
-token_label.pack(pady=5)
-
-
-# ---------------------------------
-# Stack Status
-# ---------------------------------
-
-stack_status = tk.Label(
-    window,
-    text="Current Stack: ",
-    font=("Arial", 10, "bold")
-)
-
-stack_status.pack(pady=5)
-
-
-# ---------------------------------
-# Table Section
-# ---------------------------------
-
-table_frame = tk.Frame(window)
-
-table_frame.pack(
-    pady=10,
-    fill=tk.BOTH,
-    expand=True
-)
-
-table = ttk.Treeview(
-    table_frame,
-    columns=("Stack", "Input", "Action"),
-    show="headings"
-)
-
-table.heading("Stack", text="Stack")
-
-table.heading("Input", text="Remaining Input")
-
-table.heading("Action", text="Action")
-
-table.pack(
-    fill=tk.BOTH,
-    expand=True,
-    padx=20
-)
-
-
-# ---------------------------------
-# Status Label
-# ---------------------------------
-
-status_label = tk.Label(
-    window,
-    text="STATUS: Waiting for Input",
-    font=("Arial", 12, "bold"),
-    fg="gray"
-)
-
-status_label.pack(pady=10)
-
-
-# ---------------------------------
-# Start GUI
-# ---------------------------------
-
-window.mainloop()
+            messagebox.showerror("Result", "Rejected")
+
+    def draw_simple_tree(self, tokens):
+        self.op_canvas.delete("all")
+        # Simplified dynamic display
+        x_start = 50
+        y = 80
+        self.op_canvas.create_text(300, 20, text="Simplified Bottom-Up Reduction View", font=("Arial", 10, "bold"))
+        self.op_canvas.create_text(300, 40, text="E", font=("Arial", 14))
+        
+        for i, t in enumerate(tokens):
+            x = x_start + (i * 60)
+            self.op_canvas.create_text(x, y, text=t, font=("Arial", 12))
+            self.op_canvas.create_line(300, 50, x, y-10)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ParsingApp(root)
+    root.mainloop()
